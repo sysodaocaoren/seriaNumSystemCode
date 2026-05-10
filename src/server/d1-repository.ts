@@ -74,6 +74,21 @@ function generateUniqueCode(): string {
 }
 
 export async function ensureD1Schema(db: D1DatabaseLike) {
+  const tables = await db
+    .prepare(
+      `
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table' AND name IN ('redeem_codes', 'redeem_records')
+      `,
+    )
+    .all<{ name: string }>()
+
+  const existing = new Set((tables.results || []).map((item) => item.name))
+  if (existing.has('redeem_codes') && existing.has('redeem_records')) {
+    return
+  }
+
   await db.exec(SCHEMA_SQL)
 }
 
