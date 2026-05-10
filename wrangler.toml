@@ -2,6 +2,9 @@ name = "serial-number-system"
 compatibility_date = "2026-05-10"
 pages_build_output_dir = "./dist"
 
-# Cloudflare Pages 部署时请在 Dashboard 中添加一个 D1 绑定：
-# Binding name: DB
-# 然后把 db/schema.sql 导入到该数据库。
+# After you create a D1 database in Cloudflare, uncomment and fill this block.
+#
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "serial-number-system"
+# database_id = "49a79fa5-71e1-47bf-923b-61c2457ff4d7"
