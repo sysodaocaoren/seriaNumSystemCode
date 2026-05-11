@@ -7,6 +7,7 @@ import type {
   RedeemCodeDetail,
   RedeemCodeDetailResponse,
   RedeemCodeFilterParams,
+  RedeemCodeLookupResponse,
   RedeemCodeListResponse,
   RedeemParams,
   RedeemRecord,
@@ -21,6 +22,7 @@ export type RedeemStoreState = {
 export interface RedeemCodeRepository {
   list(params: RedeemCodeFilterParams): Promise<RedeemCodeListResponse>
   getDetail(id: string): Promise<RedeemCodeDetailResponse>
+  lookupByCode(code: string): Promise<RedeemCodeLookupResponse>
   exportCodes(ids: string[]): Promise<ExportResponse>
   disable(id: string): Promise<DisableResponse>
   batchGenerate(params: BatchGenerateParams): Promise<BatchGenerateResponse>

@@ -8,6 +8,7 @@ import type {
   ExportResponse,
   RedeemCodeDetailResponse,
   RedeemCodeFilterParams,
+  RedeemCodeLookupResponse,
   RedeemCodeListResponse,
   RedeemParams,
   RedeemResponse,
@@ -18,6 +19,7 @@ import {
   disableCodeInState,
   exportCodesInState,
   getCodeDetailFromState,
+  lookupCodeFromState,
   listCodesFromState,
   redeemInState,
 } from './repository-core'
@@ -53,6 +55,9 @@ export function createLocalFileRepository(filePath: string): RedeemCodeRepositor
     },
     async getDetail(id: string): Promise<RedeemCodeDetailResponse> {
       return getCodeDetailFromState(await readState(filePath), id)
+    },
+    async lookupByCode(code: string): Promise<RedeemCodeLookupResponse> {
+      return lookupCodeFromState(await readState(filePath), code)
     },
     async exportCodes(ids: string[]): Promise<ExportResponse> {
       const state = await readState(filePath)

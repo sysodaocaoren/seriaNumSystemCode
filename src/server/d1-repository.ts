@@ -6,6 +6,7 @@ import type {
   RedeemCode,
   RedeemCodeDetailResponse,
   RedeemCodeFilterParams,
+  RedeemCodeLookupResponse,
   RedeemCodeListResponse,
   RedeemCodeType,
   RedeemParams,
@@ -13,6 +14,8 @@ import type {
 } from '../types'
 import { generateSerialNumber } from '../utils/serialNumber'
 import type { RedeemCodeRepository } from './types'
+
+const MAX_REDEEM_USES = 10
 
 type D1DatabaseLike = {
   prepare: (query: string) => {
@@ -61,6 +64,34 @@ function toRedeemCode(row: any): RedeemCode {
     used_count: Number(row.used_count || 0),
     first_redeemed_at: row.first_redeemed_at || undefined,
     created_at: String(row.created_at),
+  }
+}
+
+function getCodeExpiryInfo(code: RedeemCode, now = Date.now()) {
+  if (code.type === 'lifetime') {
+    return {
+      firstRedeemedAt: code.first_redeemed_at,
+      expiresAt: undefined as string | undefined,
+      expired: false,
+    }
+  }
+
+  if (!code.first_redeemed_at) {
+    return {
+      firstRedeemedAt: undefined,
+      expiresAt: undefined as string | undefined,
+      expired: false,
+    }
+  }
+
+  const firstRedeem = new Date(code.first_redeemed_at).getTime()
+  const duration = code.type === '6m' ? 180 * 24 * 60 * 60 * 1000 : 365 * 24 * 60 * 60 * 1000
+  const expiresAt = new Date(firstRedeem + duration).toISOString()
+
+  return {
+    firstRedeemedAt: code.first_redeemed_at,
+    expiresAt,
+    expired: new Date(expiresAt).getTime() <= now,
   }
 }
 
@@ -180,6 +211,37 @@ export function createD1Repository(db: D1DatabaseLike): RedeemCodeRepository {
             machine_code: String(item.machine_code),
             redeemed_at: String(item.redeemed_at),
           })),
+        },
+      }
+    },
+
+    async lookupByCode(redeemCode: string): Promise<RedeemCodeLookupResponse> {
+      await ensureD1Schema(db)
+      const codeRow = await db
+        .prepare(`
+          SELECT id, code, type, status, exported, used_count, first_redeemed_at, created_at
+          FROM redeem_codes
+          WHERE code = ?
+        `)
+        .bind(redeemCode)
+        .first<any>()
+
+      if (!codeRow) {
+        return { success: false, error: '兑换码不存在' }
+      }
+
+      const code = toRedeemCode(codeRow)
+      const expiry = getCodeExpiryInfo(code)
+      return {
+        success: true,
+        data: {
+          code: code.code,
+          type: code.type,
+          used_count: code.used_count,
+          remaining_uses: Math.max(MAX_REDEEM_USES - code.used_count, 0),
+          first_redeemed_at: expiry.firstRedeemedAt,
+          expires_at: expiry.expiresAt,
+          status: code.status,
         },
       }
     },
@@ -305,20 +367,16 @@ export function createD1Repository(db: D1DatabaseLike): RedeemCodeRepository {
       if (code.status === 'disabled') {
         return { success: false, error: '兑换码无效' }
       }
-      if (code.used_count >= 3) {
+      if (code.used_count >= MAX_REDEEM_USES) {
         return { success: false, error: '兑换次数已用完' }
       }
 
       const now = Date.now()
-      let expiresAt: string | undefined
-      if (code.type !== 'lifetime') {
-        const firstRedeem = code.first_redeemed_at ? new Date(code.first_redeemed_at).getTime() : now
-        const duration = code.type === '6m' ? 180 * 24 * 60 * 60 * 1000 : 365 * 24 * 60 * 60 * 1000
-        expiresAt = new Date(firstRedeem + duration).toISOString()
-        if (new Date(expiresAt).getTime() <= now) {
-          return { success: false, error: '兑换码已过期' }
-        }
+      const expiry = getCodeExpiryInfo(code, now)
+      if (expiry.expired) {
+        return { success: false, error: '兑换码已过期' }
       }
+      const expiresAt = expiry.expiresAt
 
       const serialNumber = await generateSerialNumber(machine_code, redeem_code, expiresAt, code.type)
       const redeemedAt = new Date().toISOString()

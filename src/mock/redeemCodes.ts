@@ -5,6 +5,7 @@ import type {
   ExportResponse,
   RedeemCodeDetailResponse,
   RedeemCodeFilterParams,
+  RedeemCodeLookupResponse,
   RedeemCodeListResponse,
   RedeemParams,
   RedeemResponse,
@@ -41,6 +42,10 @@ export const redeemCodeApi = {
 
   getDetail: async (id: string): Promise<RedeemCodeDetailResponse> => {
     return request<RedeemCodeDetailResponse>(`/api/redeem-codes/${encodeURIComponent(id)}`)
+  },
+
+  lookup: async (code: string): Promise<RedeemCodeLookupResponse> => {
+    return request<RedeemCodeLookupResponse>(`/api/redeem-codes/lookup?code=${encodeURIComponent(code)}`)
   },
 
   export: async (ids: string[]): Promise<ExportResponse> => {

@@ -39,6 +39,11 @@ export async function handleRedeemCodeApiRequest(input: {
     return json(200, await repository.batchGenerate(payload))
   }
 
+  if (pathname === '/api/redeem-codes/lookup' && method === 'GET') {
+    const code = String(searchParams.get('code') || '').trim().toUpperCase()
+    return json(200, await repository.lookupByCode(code))
+  }
+
   if (pathname === '/api/redeem-codes/export' && method === 'POST') {
     const ids = Array.isArray(body?.ids) ? body.ids.map((item: unknown) => String(item)) : []
     return json(200, await repository.exportCodes(ids))

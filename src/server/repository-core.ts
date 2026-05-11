@@ -6,6 +6,7 @@ import type {
   RedeemCode,
   RedeemCodeDetailResponse,
   RedeemCodeFilterParams,
+  RedeemCodeLookupResponse,
   RedeemCodeListResponse,
   RedeemCodeType,
   RedeemParams,
@@ -17,6 +18,36 @@ import type { RedeemStoreState } from './types'
 const EMPTY_STATE: RedeemStoreState = {
   codes: [],
   recordsByCodeId: {},
+}
+
+export const MAX_REDEEM_USES = 10
+
+function getCodeExpiryInfo(code: RedeemCode, now = Date.now()) {
+  if (code.type === 'lifetime') {
+    return {
+      firstRedeemedAt: code.first_redeemed_at,
+      expiresAt: undefined as string | undefined,
+      expired: false,
+    }
+  }
+
+  if (!code.first_redeemed_at) {
+    return {
+      firstRedeemedAt: undefined,
+      expiresAt: undefined as string | undefined,
+      expired: false,
+    }
+  }
+
+  const firstRedeem = new Date(code.first_redeemed_at).getTime()
+  const duration = code.type === '6m' ? 180 * 24 * 60 * 60 * 1000 : 365 * 24 * 60 * 60 * 1000
+  const expiresAt = new Date(firstRedeem + duration).toISOString()
+
+  return {
+    firstRedeemedAt: code.first_redeemed_at,
+    expiresAt,
+    expired: new Date(expiresAt).getTime() <= now,
+  }
 }
 
 function cloneState(state?: RedeemStoreState): RedeemStoreState {
@@ -103,6 +134,27 @@ export function getCodeDetailFromState(state: RedeemStoreState, id: string): Red
     data: {
       ...code,
       records: state.recordsByCodeId[id] || [],
+    },
+  }
+}
+
+export function lookupCodeFromState(state: RedeemStoreState, redeemCode: string): RedeemCodeLookupResponse {
+  const code = state.codes.find((item) => item.code === redeemCode)
+  if (!code) {
+    return { success: false, error: '兑换码不存在' }
+  }
+
+  const expiry = getCodeExpiryInfo(code)
+  return {
+    success: true,
+    data: {
+      code: code.code,
+      type: code.type,
+      used_count: code.used_count,
+      remaining_uses: Math.max(MAX_REDEEM_USES - code.used_count, 0),
+      first_redeemed_at: expiry.firstRedeemedAt,
+      expires_at: expiry.expiresAt,
+      status: code.status,
     },
   }
 }
@@ -230,7 +282,7 @@ export async function redeemInState(
     }
   }
 
-  if (code.used_count >= 3) {
+  if (code.used_count >= MAX_REDEEM_USES) {
     return {
       state,
       response: { success: false, error: '兑换次数已用完' },
@@ -238,23 +290,14 @@ export async function redeemInState(
   }
 
   const now = Date.now()
-  let expiresAt: string | undefined
-
-  if (code.type !== 'lifetime') {
-    const firstRedeem = code.first_redeemed_at ? new Date(code.first_redeemed_at).getTime() : now
-    const duration =
-      code.type === '6m'
-        ? 180 * 24 * 60 * 60 * 1000
-        : 365 * 24 * 60 * 60 * 1000
-
-    expiresAt = new Date(firstRedeem + duration).toISOString()
-    if (new Date(expiresAt).getTime() <= now) {
-      return {
-        state,
-        response: { success: false, error: '兑换码已过期' },
-      }
+  const expiry = getCodeExpiryInfo(code, now)
+  if (expiry.expired) {
+    return {
+      state,
+      response: { success: false, error: '兑换码已过期' },
     }
   }
+  const expiresAt = expiry.expiresAt
 
   const serialNumber = await generateSerialNumber(machine_code, redeem_code, expiresAt, code.type)
 

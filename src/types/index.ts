@@ -58,6 +58,20 @@ export interface RedeemCodeDetailResponse {
   error?: string
 }
 
+export interface RedeemCodeLookupResponse {
+  success: boolean
+  data?: {
+    code: string
+    type: RedeemCodeType
+    used_count: number
+    remaining_uses: number
+    first_redeemed_at?: string
+    expires_at?: string
+    status: RedeemCodeStatus
+  }
+  error?: string
+}
+
 export interface DisableResponse {
   success: boolean
   error?: string

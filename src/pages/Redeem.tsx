@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AlertCircle, CheckCircle, Copy, Gift, RefreshCw } from 'lucide-react'
 import { redeemCodeApi } from '../mock/redeemCodes'
-import type { RedeemResponse } from '../types'
+import type { RedeemCodeLookupResponse, RedeemResponse } from '../types'
 import { formatRedeemCodeInput, validateRedeemCodeFormat } from '../utils/serialNumber'
+
+const MAX_REDEEM_USES = 10
 
 function formatSerialForDisplay(serialNumber?: string): string {
   if (!serialNumber) return ''
@@ -17,14 +19,87 @@ function formatSerialForDisplay(serialNumber?: string): string {
   return `${prefix}\n${lines.join('\n')}`
 }
 
+function formatDateText(value?: string) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`
+}
+
+function getTypeText(type?: string) {
+  const typeMap: Record<string, string> = {
+    '6m': '6个月',
+    '1y': '1年',
+    lifetime: '终身',
+  }
+  return type ? typeMap[type] || type : ''
+}
+
+function buildLookupMessage(lookup: RedeemCodeLookupResponse | null) {
+  if (!lookup) return ''
+  if (!lookup.success || !lookup.data) {
+    return lookup.error || ''
+  }
+
+  const { type, remaining_uses, first_redeemed_at, expires_at, status } = lookup.data
+  const startText = first_redeemed_at
+    ? `首次兑换时间为 ${formatDateText(first_redeemed_at)}`
+    : '该兑换码尚未开始使用，首次兑换后开始计时'
+  const expiryText =
+    type === 'lifetime'
+      ? '终身有效，无截止时间'
+      : expires_at
+        ? `截止时间为 ${formatDateText(expires_at)}`
+        : '截止时间将在首次兑换后按有效期自动计算'
+  const statusText = status === 'disabled' ? '当前状态为已禁用' : `当前还可兑换 ${remaining_uses} 次（每个兑换码最多 ${MAX_REDEEM_USES} 次）`
+
+  return `兑换码存在，类型为${getTypeText(type)}，${statusText}；${startText}，${expiryText}。`
+}
+
 export default function Redeem() {
   const [redeemCode, setRedeemCode] = useState('')
   const [machineCode, setMachineCode] = useState('')
   const [isRedeeming, setIsRedeeming] = useState(false)
+  const [isLookingUp, setIsLookingUp] = useState(false)
   const [error, setError] = useState('')
+  const [lookupResult, setLookupResult] = useState<RedeemCodeLookupResponse | null>(null)
   const [redeemResult, setRedeemResult] = useState<RedeemResponse['data'] | null>(null)
   const [showResult, setShowResult] = useState(false)
   const [copySuccess, setCopySuccess] = useState(false)
+
+  const lookupMessage = useMemo(() => buildLookupMessage(lookupResult), [lookupResult])
+
+  useEffect(() => {
+    if (!redeemCode || !validateRedeemCodeFormat(redeemCode)) {
+      setLookupResult(null)
+      setIsLookingUp(false)
+      return
+    }
+
+    let active = true
+    setIsLookingUp(true)
+    const timer = setTimeout(async () => {
+      try {
+        const result = await redeemCodeApi.lookup(redeemCode)
+        if (active) {
+          setLookupResult(result)
+        }
+      } catch {
+        if (active) {
+          setLookupResult({ success: false, error: '兑换码信息查询失败，请稍后重试' })
+        }
+      } finally {
+        if (active) {
+          setIsLookingUp(false)
+        }
+      }
+    }, 250)
+
+    return () => {
+      active = false
+      clearTimeout(timer)
+    }
+  }, [redeemCode])
 
   const handleRedeemCodeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setRedeemCode(formatRedeemCodeInput(event.target.value))
@@ -88,36 +163,26 @@ export default function Redeem() {
     setRedeemCode('')
     setMachineCode('')
     setError('')
+    setLookupResult(null)
   }
 
   const getExpiryText = () => {
     if (!redeemResult) return ''
     if (redeemResult.type === 'lifetime') return '终身有效'
-    if (!redeemResult.expires_at) return ''
-
-    const date = new Date(redeemResult.expires_at)
-    return `有效期至：${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`
-  }
-
-  const getTypeText = () => {
-    if (!redeemResult) return ''
-    const typeMap: Record<string, string> = {
-      '6m': '6个月',
-      '1y': '1年',
-      lifetime: '终身',
-    }
-    return typeMap[redeemResult.type] || redeemResult.type
+    return redeemResult.expires_at ? `有效期至：${formatDateText(redeemResult.expires_at)}` : ''
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-100 px-4 py-8">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 px-4 py-8">
       <div className="mx-auto w-full max-w-lg">
         <div className="mb-8 text-center">
           <div className="mb-4 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 shadow-lg shadow-blue-200">
             <Gift className="h-8 w-8 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">序列号兑换</h1>
-          <p className="mt-2 text-sm text-gray-600">输入兑换码和机器码，立即生成可用序列号</p>
+          <h1 className="text-2xl font-bold text-gray-900">CreateNow 序列号兑换</h1>
+          <p className="mt-2 text-sm leading-6 text-gray-600">
+            这是 CreateNow 软件专用的兑换入口。输入兑换码和机器码后，即可生成当前设备可用的序列号。
+          </p>
         </div>
 
         {!showResult ? (
@@ -136,9 +201,11 @@ export default function Redeem() {
                   className="w-full rounded-xl border border-gray-300 px-4 py-3 text-center font-mono text-lg uppercase tracking-[0.2em] text-gray-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
                   maxLength={19}
                 />
-                <p className="mt-2 text-center text-xs text-gray-500">
-                  请输入 16 位兑换码，系统会自动格式化
-                </p>
+                <div className="mt-2 min-h-11 rounded-xl bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-600">
+                  {isLookingUp
+                    ? '正在查询兑换码信息...'
+                    : lookupMessage || `每个兑换码最多可兑换 ${MAX_REDEEM_USES} 次，首次兑换时间即为开始使用时间。`}
+                </div>
               </div>
 
               <div>
@@ -149,11 +216,11 @@ export default function Redeem() {
                   id="machineCode"
                   value={machineCode}
                   onChange={(event) => setMachineCode(event.target.value)}
-                  placeholder="请输入您的机器码"
+                  placeholder="请输入当前 CreateNow 软件显示的机器码"
                   rows={3}
                   className="w-full resize-none rounded-xl border border-gray-300 px-4 py-3 font-mono text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
                 />
-                <p className="mt-2 text-xs text-gray-500">机器码用于将序列号绑定到当前设备</p>
+                <p className="mt-2 text-xs text-gray-500">序列号会绑定到当前机器码，请确认与 CreateNow 中显示的一致。</p>
               </div>
 
               {error ? (
@@ -176,19 +243,10 @@ export default function Redeem() {
                 ) : (
                   <>
                     <Gift className="mr-2 h-5 w-5" />
-                    立即兑换
+                    立即兑换序列号
                   </>
                 )}
               </button>
-            </div>
-
-            <div className="mt-6 border-t border-gray-100 pt-6">
-              <h3 className="text-sm font-medium text-gray-700">兑换说明</h3>
-              <ul className="mt-3 space-y-2 text-sm text-gray-500">
-                <li>每个兑换码最多可兑换 3 次。</li>
-                <li>兑换后的序列号会绑定到当前机器码。</li>
-                <li>请在兑换成功后及时复制并保存序列号。</li>
-              </ul>
             </div>
           </div>
         ) : (
@@ -198,17 +256,17 @@ export default function Redeem() {
                 <CheckCircle className="h-8 w-8 text-emerald-600" />
               </div>
               <h2 className="text-2xl font-bold text-gray-900">兑换成功</h2>
-              <p className="mt-2 text-sm text-gray-600">您的序列号已生成，请及时复制保存</p>
+              <p className="mt-2 text-sm text-gray-600">这是当前 CreateNow 设备可用的序列号，请及时复制保存。</p>
             </div>
 
             <div className="mb-6 rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 to-indigo-50 p-5">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-medium text-gray-700">您的序列号</p>
-                  <p className="mt-1 text-xs text-gray-500">已优化为适合长串查看的展示方式</p>
+                  <p className="mt-1 text-xs text-gray-500">复制后可直接用于 CreateNow 激活</p>
                 </div>
                 <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-blue-700 shadow-sm">
-                  {getTypeText()}
+                  {getTypeText(redeemResult?.type)}
                 </span>
               </div>
 
@@ -239,7 +297,7 @@ export default function Redeem() {
             <div className="mb-6 rounded-2xl border border-gray-100 bg-gray-50 p-4">
               <div className="flex items-center justify-between border-b border-gray-200 py-2 text-sm">
                 <span className="text-gray-500">授权类型</span>
-                <span className="font-medium text-gray-900">{getTypeText()}</span>
+                <span className="font-medium text-gray-900">{getTypeText(redeemResult?.type)}</span>
               </div>
               <div className="flex items-center justify-between py-2 text-sm">
                 <span className="text-gray-500">有效期</span>
@@ -254,18 +312,8 @@ export default function Redeem() {
               <RefreshCw className="mr-2 h-5 w-5" />
               继续兑换
             </button>
-
-            <p className="mt-4 text-center text-xs leading-6 text-gray-500">
-              请妥善保存您的序列号，关闭页面后将无法再次直接查看本次结果。
-            </p>
           </div>
         )}
-
-        <div className="mt-8 text-center">
-          <a href="/admin/login" className="text-sm text-gray-500 transition hover:text-gray-700">
-            管理员登录 →
-          </a>
-        </div>
       </div>
     </div>
   )
